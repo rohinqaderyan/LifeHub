@@ -50,26 +50,49 @@ struct Task: Identifiable, Codable {
 class TaskManager: ObservableObject {
     @Published var tasks: [Task] = []
     @Published var searchText = ""
+    @Published var debouncedSearchText = ""
     @Published var filterPriority: Task.TaskPriority?
     @Published var showCompletedTasks = true
     
     private let tasksKey = "savedTasks"
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         loadTasks()
         requestNotificationPermission()
+        setupDebouncedSearch()
     }
     
     var filteredTasks: [Task] {
         tasks.filter { task in
-            let matchesSearch = searchText.isEmpty || task.title.localizedCaseInsensitiveContains(searchText) || task.description.localizedCaseInsensitiveContains(searchText)
+            let matchesSearch = debouncedSearchText.isEmpty || 
+                task.title.localizedCaseInsensitiveContains(debouncedSearchText) || 
+                task.description.localizedCaseInsensitiveContains(debouncedSearchText) ||
+                task.tags.contains(where: { $0.localizedCaseInsensitiveContains(debouncedSearchText) })
             let matchesPriority = filterPriority == nil || task.priority == filterPriority
             let matchesCompletion = showCompletedTasks || !task.isCompleted
             return matchesSearch && matchesPriority && matchesCompletion
         }.sorted { task1, task2 in
+            // Completed tasks go to the bottom
             if task1.isCompleted != task2.isCompleted {
                 return !task1.isCompleted
             }
+            
+            // Sort by priority within same completion status
+            if task1.priority != task2.priority {
+                return priorityValue(task1.priority) > priorityValue(task2.priority)
+            }
+            
+            // Then by due date (soonest first)
+            if let date1 = task1.dueDate, let date2 = task2.dueDate {
+                return date1 < date2
+            } else if task1.dueDate != nil {
+                return true
+            } else if task2.dueDate != nil {
+                return false
+            }
+            
+            // Finally by creation date (newest first)
             return task1.createdAt > task2.createdAt
         }
     }
@@ -119,6 +142,24 @@ class TaskManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: tasksKey),
            let decoded = try? JSONDecoder().decode([Task].self, from: data) {
             tasks = decoded
+        }
+    }
+    
+    private func setupDebouncedSearch() {
+        $searchText
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] value in
+                self?.debouncedSearchText = value
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func priorityValue(_ priority: Task.TaskPriority) -> Int {
+        switch priority {
+        case .urgent: return 4
+        case .high: return 3
+        case .medium: return 2
+        case .low: return 1
         }
     }
     
