@@ -42,6 +42,25 @@ struct Habit: Identifiable, Codable {
         return daysSinceCreation > 0 ? Double(totalCompletions) / Double(daysSinceCreation) : 0
     }
     
+    var monthlyCompletionRate: Double {
+        let calendar = Calendar.current
+        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        let recentCompletions = completions.filter { $0 >= thirtyDaysAgo }
+        return Double(recentCompletions.count) / 30.0
+    }
+    
+    var weeklyCompletionRate: Double {
+        let calendar = Calendar.current
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        let recentCompletions = completions.filter { $0 >= sevenDaysAgo }
+        return Double(recentCompletions.count) / 7.0
+    }
+    
+    var averageCompletionsPerWeek: Double {
+        let weeksSinceCreation = Calendar.current.dateComponents([.weekOfYear], from: createdAt, to: Date()).weekOfYear ?? 1
+        return weeksSinceCreation > 0 ? Double(totalCompletions) / Double(weeksSinceCreation) : 0
+    }
+    
     var isCompletedToday: Bool {
         guard let lastCompletion = completions.last else { return false }
         return Calendar.current.isDateInToday(lastCompletion)
@@ -183,6 +202,80 @@ class HabitManager: ObservableObject {
         return progress
     }
     
+    func getMonthlyProgress(for habit: Habit) -> [Int] {
+        let calendar = Calendar.current
+        let today = Date()
+        var progress: [Int] = []
+        
+        for i in 0..<30 {
+            if let day = calendar.date(byAdding: .day, value: -29 + i, to: today) {
+                let completionsOnDay = habit.completions.filter { calendar.isDate($0, inSameDayAs: day) }.count
+                progress.append(completionsOnDay)
+            }
+        }
+        
+        return progress
+    }
+    
+    func getHabitStatistics(for habit: Habit) -> HabitStatistics {
+        let calendar = Calendar.current
+        
+        // Calculate best streak period
+        var bestStreakStart: Date?
+        var bestStreakEnd: Date?
+        var currentStreakLength = 0
+        var maxStreakLength = 0
+        var tempStart: Date?
+        
+        let sortedCompletions = habit.completions.sorted()
+        
+        for (index, completion) in sortedCompletions.enumerated() {
+            if index == 0 {
+                currentStreakLength = 1
+                tempStart = completion
+            } else {
+                let previousCompletion = sortedCompletions[index - 1]
+                let daysBetween = calendar.dateComponents([.day], from: calendar.startOfDay(for: previousCompletion), to: calendar.startOfDay(for: completion)).day ?? 0
+                
+                if daysBetween == 1 {
+                    currentStreakLength += 1
+                } else {
+                    if currentStreakLength > maxStreakLength {
+                        maxStreakLength = currentStreakLength
+                        bestStreakStart = tempStart
+                        bestStreakEnd = previousCompletion
+                    }
+                    currentStreakLength = 1
+                    tempStart = completion
+                }
+            }
+        }
+        
+        // Check final streak
+        if currentStreakLength > maxStreakLength {
+            maxStreakLength = currentStreakLength
+            bestStreakStart = tempStart
+            bestStreakEnd = sortedCompletions.last
+        }
+        
+        // Calculate consistency score (0-100)
+        let expectedCompletions = calendar.dateComponents([.day], from: habit.createdAt, to: Date()).day ?? 1
+        let consistencyScore = min(100, Int((Double(habit.totalCompletions) / Double(expectedCompletions)) * 100))
+        
+        return HabitStatistics(
+            totalDays: expectedCompletions,
+            completionRate: habit.completionRate,
+            monthlyRate: habit.monthlyCompletionRate,
+            weeklyRate: habit.weeklyCompletionRate,
+            currentStreak: habit.currentStreak,
+            longestStreak: habit.longestStreak,
+            bestStreakStart: bestStreakStart,
+            bestStreakEnd: bestStreakEnd,
+            consistencyScore: consistencyScore,
+            averagePerWeek: habit.averageCompletionsPerWeek
+        )
+    }
+    
     private func saveHabits() {
         if let encoded = try? JSONEncoder().encode(habits) {
             UserDefaults.standard.set(encoded, forKey: habitsKey)
@@ -194,5 +287,31 @@ class HabitManager: ObservableObject {
            let decoded = try? JSONDecoder().decode([Habit].self, from: data) {
             habits = decoded
         }
+    }
+}
+
+// Statistics model for detailed habit analytics
+struct HabitStatistics {
+    let totalDays: Int
+    let completionRate: Double
+    let monthlyRate: Double
+    let weeklyRate: Double
+    let currentStreak: Int
+    let longestStreak: Int
+    let bestStreakStart: Date?
+    let bestStreakEnd: Date?
+    let consistencyScore: Int
+    let averagePerWeek: Double
+    
+    var completionRatePercent: String {
+        String(format: "%.1f%%", completionRate * 100)
+    }
+    
+    var monthlyRatePercent: String {
+        String(format: "%.1f%%", monthlyRate * 100)
+    }
+    
+    var weeklyRatePercent: String {
+        String(format: "%.1f%%", weeklyRate * 100)
     }
 }
