@@ -197,10 +197,14 @@ Potential additions:
 
 This is a demonstration project created for educational purposes.
 
-## 👨‍💻 Author
+## 👨‍💻 Author & Developer - Rohin Qaderyan
 
 Built with ❤️ using SwiftUI and modern iOS technologies.
 
 ---
 
 **LifeHub** - Your all-in-one productivity companion! 🌟
+
+---
+
+**Developer** - Rohin Qaderyan
