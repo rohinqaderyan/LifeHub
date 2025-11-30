@@ -46,6 +46,7 @@ class ThemeManager: ObservableObject {
             savePreferences()
         }
     }
+    @Published var customThemes: [AppTheme] = []
     
     // Predefined themes
     let themes: [AppTheme] = [
@@ -58,10 +59,22 @@ class ThemeManager: ObservableObject {
     ]
     
     init() {
+        // Load custom themes
+        if let data = UserDefaults.standard.data(forKey: "customThemes"),
+           let decoded = try? JSONDecoder().decode([AppTheme].self, from: data) {
+            self.customThemes = decoded
+        }
+        
         // Load saved preferences
-        if let savedThemeId = UserDefaults.standard.string(forKey: "selectedTheme"),
-           let theme = themes.first(where: { $0.id == savedThemeId }) {
-            self.currentTheme = theme
+        if let savedThemeId = UserDefaults.standard.string(forKey: "selectedTheme") {
+            // Check in predefined themes first
+            if let theme = themes.first(where: { $0.id == savedThemeId }) {
+                self.currentTheme = theme
+            } else if let theme = customThemes.first(where: { $0.id == savedThemeId }) {
+                self.currentTheme = theme
+            } else {
+                self.currentTheme = themes[0]
+            }
         } else {
             self.currentTheme = themes[0]
         }
@@ -77,9 +90,62 @@ class ThemeManager: ObservableObject {
         savePreferences()
     }
     
+    func createCustomTheme(name: String, accentColor: Color, gradientStart: Color, gradientEnd: Color) {
+        let theme = AppTheme(
+            id: UUID().uuidString,
+            name: name,
+            accentColorHex: accentColor.toHex() ?? "00B4D8",
+            gradientStartHex: gradientStart.toHex() ?? "0077B6",
+            gradientEndHex: gradientEnd.toHex() ?? "00B4D8"
+        )
+        
+        customThemes.append(theme)
+        saveCustomThemes()
+        selectTheme(theme)
+    }
+    
+    func updateCustomTheme(_ theme: AppTheme, name: String, accentColor: Color, gradientStart: Color, gradientEnd: Color) {
+        guard let index = customThemes.firstIndex(where: { $0.id == theme.id }) else { return }
+        
+        let updatedTheme = AppTheme(
+            id: theme.id,
+            name: name,
+            accentColorHex: accentColor.toHex() ?? theme.accentColorHex,
+            gradientStartHex: gradientStart.toHex() ?? theme.gradientStartHex,
+            gradientEndHex: gradientEnd.toHex() ?? theme.gradientEndHex
+        )
+        
+        customThemes[index] = updatedTheme
+        saveCustomThemes()
+        
+        if currentTheme.id == theme.id {
+            selectTheme(updatedTheme)
+        }
+    }
+    
+    func deleteCustomTheme(_ theme: AppTheme) {
+        customThemes.removeAll { $0.id == theme.id }
+        saveCustomThemes()
+        
+        // If deleted theme was active, switch to default
+        if currentTheme.id == theme.id {
+            selectTheme(themes[0])
+        }
+    }
+    
+    var allThemes: [AppTheme] {
+        themes + customThemes
+    }
+    
     private func savePreferences() {
         UserDefaults.standard.set(currentTheme.id, forKey: "selectedTheme")
         UserDefaults.standard.set(isDarkMode, forKey: "isDarkMode")
+    }
+    
+    private func saveCustomThemes() {
+        if let encoded = try? JSONEncoder().encode(customThemes) {
+            UserDefaults.standard.set(encoded, forKey: "customThemes")
+        }
     }
 }
 
@@ -107,6 +173,43 @@ extension Color {
             blue:  Double(b) / 255,
             opacity: Double(a) / 255
         )
+    }
+    
+    func toHex() -> String? {
+        guard let components = UIColor(self).cgColor.components else { return nil }
+        
+        let r = components[0]
+        let g = components.count > 1 ? components[1] : components[0]
+        let b = components.count > 2 ? components[2] : components[0]
+        
+        return String(format: "%02lX%02lX%02lX",
+                     lroundf(Float(r * 255)),
+                     lroundf(Float(g * 255)),
+                     lroundf(Float(b * 255)))
+    }
+}
+
+// Gradient editor helper
+struct GradientEditor {
+    static func createPreviewGradient(start: Color, end: Color) -> LinearGradient {
+        LinearGradient(
+            colors: [start, end],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
+    static func suggestedGradients() -> [(String, Color, Color)] {
+        [
+            ("Warm Sunset", Color(hex: "FF6B6B"), Color(hex: "FFE66D")),
+            ("Cool Ocean", Color(hex: "4ECDC4"), Color(hex: "44A08D")),
+            ("Purple Haze", Color(hex: "A8C0FF"), Color(hex: "3F2B96")),
+            ("Mint Fresh", Color(hex: "00B4DB"), Color(hex: "0083B0")),
+            ("Rose Gold", Color(hex: "ED4264"), Color(hex: "FFEDBC")),
+            ("Electric Blue", Color(hex: "00D2FF"), Color(hex: "3A7BD5")),
+            ("Peachy Keen", Color(hex: "FA709A"), Color(hex: "FEE140")),
+            ("Emerald City", Color(hex: "11998E"), Color(hex: "38EF7D"))
+        ]
     }
 }
 
